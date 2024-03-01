@@ -1,9 +1,7 @@
-name: Build Android 2
+name: Build Android 1
 
-on:
-  push:
-    branches:
-      - feat/actions
+run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+on: [push]
 
 jobs:
   build:
