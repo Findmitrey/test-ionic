@@ -1,15 +1,19 @@
-name: Build Android 1
+name: Build Android 2
 
-run-name: ${{ github.actor }} is testing out GitHub Actions 🚀
+run-name: ${{ github.actor }} is testing out GitHub Actions 1 🚀
 on: [push]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
-    name: Build APK
+    name: Build Android App
     runs-on: ubuntu-latest
     steps:
       - name: Checkout source
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
       - name: Setup java
         uses: actions/setup-java@v3
         with:
@@ -23,44 +27,48 @@ jobs:
           cache: 'npm'
       - name: Install dependencies
         id: install_code
-        run: npm ci
+        run: npm install
 
       - name: Build app
         run: npm run build
       - name: Cap sync
-        run: npx cap sync
-      - name: Build android app
-        run: npx cap build android
-        
+        run: npx capacitor sync android 
+      - name: Extract Android signing key from env
+        run: |
+          echo "${{ secrets.RELEASE_KEYSTORE }}" > android/release.jks.base64
+          base64 -d android/release.jks.base64 > android/release.decrypted.jks
+      - name: Bump Version
+        uses: chkfung/android-version-actions@v1.2.2
+        with:
+          gradlePath: android/app/build.gradle
+          versionCode: ${{ github.run_number }}
+          versionName: 1.0.0
+      - name: Build AAB and Sign
+        run: npx cap build android --keystorepath release.decrypted.jks --keystorepass "${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" --keystorealias "${{ secrets.RELEASE_KEY_ALIAS }}" --keystorealiaspass "${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" --androidreleasetype AAB 
+      - name: Upload AAB
+        uses: actions/upload-artifact@v3
+        with:
+          name: app-release-signed.aab
+          path: android/app/build/outputs/bundle/release
+      - run: echo Build status report=${{ job.status }}
+  deploy:
+    name: Deploy Android
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download AAB
+        uses: actions/download-artifact@v3
+        with:
+          name: app-release-signed.aab
+      - name: Publish to Play Store
+        uses: r0adkll/upload-google-play@v1
+        with:
+          serviceAccountJsonPlainText: '${{ secrets.SERVICE_JSON }}'
+          packageName: com.testionic.fin.dmitry
+          releaseFiles: '${{ github.workspace }}/app-release-signed.aab'
+          track: internal
 
-      # - name: Extract Android signing key from env
-      #   run: |
-      #     echo "${{ secrets.RELEASE_KEYSTORE }}" > android/release.jks.base64
-      #     base64 -d android/release.jks.base64 > android/release.decrypted.jks
+          
 
-      # - name: Sign dev build
-      #   run: jarsigner -keystore android/release.decrypted.jks -storepass "${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" -signedjar ./android/app/build/outputs/bundle/release/app-release-signed.aab ./android/app/build/outputs/bundle/release/app-release.aab release
 
-      # - name: Check folder content of android output
-      #   run: ls ./android/app/build/outputs/bundle/release
-
-      # # - name: Upload release bundle
-      # #   uses: actions/upload-artifact@v3
-      # #   with:
-      # #     name: app-release
-      # #     path: ./android/app/build/outputs/bundle/release/app-release-signed.aab
-      # #     retention-days: 60
-
-      # - name: Set Tag
-      #   id: current-datetime
-      #   run: echo "CURRENT_DATETIME=$(date +'%Y-%m-%d-%H_%M_%S%z')" >> "$GITHUB_OUTPUT"
-
-      # - name: Build Release
-      #   shell: bash
-      #   run: |
-      #     hub release create ${{ steps.current-datetime.outputs.CURRENT_DATETIME }} \
-      #     -m ${{ steps.current-datetime.outputs.CURRENT_DATETIME }} \
-      #     -a ./android/app/build/outputs/bundle/release/app-release-signed.aab \
-      #     -a ./android/app/build/outputs/apk/debug/app-debug.apk
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.ACCESS_TOKEN }}
+      
